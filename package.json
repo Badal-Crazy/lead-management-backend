@@ -1,7 +1,49 @@
 {
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0"
+  },
   "dependencies": {
-    "axios": "^1.19.0",
-    "bootstrap": "^5.3.8",
-    "react-router-dom": "^7.18.2"
+    "@fortawesome/fontawesome-free": "^6.5.0",
+    "axios": "^1.6.0",
+    "bootstrap": "^5.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "vite": "^5.0.8"
   }
 }
+EOFcd /Users/Badal/Badal_Work/backend
+cat > src/main/resources/application.properties << 'EOF'
+# Application
+spring.application.name=lead-management-system
+server.port=8080
+server.address=0.0.0.0
+
+# CORS - Add your network IP
+app.frontend-url=http://localhost:5173
+app.frontend-url-network=http://192.168.1.100:5173
+
+# File upload limits
+spring.servlet.multipart.max-file-size=100MB
+spring.servlet.multipart.max-request-size=100MB
+
+# Logging
+logging.level.com.example.backend=INFO
+logging.level.org.springframework.security=INFO
+logging.level.org.springframework.web=INFO

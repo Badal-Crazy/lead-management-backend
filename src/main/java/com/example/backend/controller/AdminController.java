@@ -1,17 +1,14 @@
 package com.example.backend.controller;
 
 import com.example.backend.model.User;
-import com.example.backend.model.Lead;
-import com.example.backend.model.Disposition;
 import com.example.backend.repository.CsvUserRepository;
-import com.example.backend.repository.CsvLeadRepository;
-import com.example.backend.repository.CsvDispositionRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -19,75 +16,9 @@ import java.util.*;
 public class AdminController {
 
     private final CsvUserRepository userRepository;
-    private final CsvLeadRepository leadRepository;
-    private final CsvDispositionRepository dispositionRepository;
-    private final PasswordEncoder passwordEncoder;
 
-    public AdminController(CsvUserRepository userRepository,
-                          CsvLeadRepository leadRepository,
-                          CsvDispositionRepository dispositionRepository,
-                          PasswordEncoder passwordEncoder) {
+    public AdminController(CsvUserRepository userRepository) {
         this.userRepository = userRepository;
-        this.leadRepository = leadRepository;
-        this.dispositionRepository = dispositionRepository;
-        this.passwordEncoder = passwordEncoder;
-    }
-
-    @GetMapping("/stats")
-    public ResponseEntity<?> getStats() {
-        try {
-            List<User> users = userRepository.findAll();
-            List<Lead> leads = leadRepository.findAll();
-            List<Disposition> dispositions = dispositionRepository.findAll();
-
-            Map<String, Object> stats = new HashMap<>();
-            stats.put("totalUsers", users.size());
-            stats.put("totalAdmins", users.stream().filter(u -> u.getRole().equals("ROLE_ADMIN")).count());
-            stats.put("totalAgents", users.stream().filter(u -> u.getRole().equals("ROLE_AGENT")).count());
-            stats.put("totalLeads", leads.size());
-            stats.put("pendingLeads", leads.stream().filter(l -> "Pending".equalsIgnoreCase(l.getStatus())).count());
-            stats.put("disposedLeads", leads.stream().filter(l -> "Disposed".equalsIgnoreCase(l.getStatus())).count());
-            stats.put("totalDispositions", dispositions.size());
-            stats.put("pendingApprovals", users.stream().filter(u -> !u.isApproved()).count());
-
-            return ResponseEntity.ok(stats);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch stats: " + e.getMessage()));
-        }
-    }
-
-    @GetMapping("/recent-activity")
-    public ResponseEntity<?> getRecentActivity() {
-        try {
-            List<Map<String, Object>> activities = new ArrayList<>();
-            List<Disposition> dispositions = dispositionRepository.findAll();
-            
-            int count = Math.min(5, dispositions.size());
-            for (int i = dispositions.size() - 1; i >= dispositions.size() - count && i >= 0; i--) {
-                Disposition d = dispositions.get(i);
-                Map<String, Object> activity = new HashMap<>();
-                activity.put("message", "Disposition completed for " + d.getLeadName());
-                activity.put("icon", "fa-check-circle");
-                activity.put("time", d.getCreatedAt() != null ? d.getCreatedAt().toString() : new Date().toString());
-                activities.add(activity);
-            }
-
-            if (activities.isEmpty()) {
-                Map<String, Object> activity = new HashMap<>();
-                activity.put("message", "Welcome to the Admin Dashboard!");
-                activity.put("icon", "fa-star");
-                activity.put("time", new Date().toString());
-                activities.add(activity);
-            }
-
-            return ResponseEntity.ok(activities);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch recent activity: " + e.getMessage()));
-        }
     }
 
     @GetMapping("/pending-users")
@@ -99,16 +30,19 @@ public class AdminController {
             return ResponseEntity.ok(pendingUsers);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch pending users"));
+                    .body(Map.of("error", "Failed to fetch pending users: " + e.getMessage()));
         }
     }
 
     @PostMapping("/approve-user/{username}")
     public ResponseEntity<?> approveUser(@PathVariable String username, @RequestBody Map<String, String> request) {
         try {
+            System.out.println("📝 Approving user: " + username);
+            
             var userOpt = userRepository.findByUsername(username);
             if (userOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "User not found: " + username));
             }
 
             User user = userOpt.get();
@@ -117,14 +51,14 @@ public class AdminController {
             if ("approve".equals(action)) {
                 user.setApproved(true);
                 user.setEnabled(true);
+                userRepository.save(user);
+                return ResponseEntity.ok(Map.of("message", "User approved successfully"));
             } else {
                 userRepository.deleteByUsername(username);
                 return ResponseEntity.ok(Map.of("message", "User rejected and deleted"));
             }
-
-            userRepository.save(user);
-            return ResponseEntity.ok(Map.of("message", "User approved successfully"));
         } catch (Exception e) {
+            System.err.println("❌ Error approving user: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to approve user: " + e.getMessage()));
         }
@@ -138,7 +72,58 @@ public class AdminController {
             return ResponseEntity.ok(users);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch users"));
+                    .body(Map.of("error", "Failed to fetch users: " + e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/users/{username}")
+    public ResponseEntity<?> deleteUser(
+            @PathVariable String username,
+            @RequestHeader("X-User-Role") String userRole) {
+        try {
+            System.out.println("🗑️ Delete request for user: " + username);
+            System.out.println("👤 Requested by role: " + userRole);
+            
+            var userOpt = userRepository.findByUsername(username);
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "User not found: " + username));
+            }
+
+            User userToDelete = userOpt.get();
+            String targetRole = userToDelete.getRole();
+
+            // Super Admin can delete anyone except themselves
+            if ("ROLE_SUPER_ADMIN".equals(userRole)) {
+                if (username.equals("superadmin")) {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("error", "Cannot delete Super Admin"));
+                }
+                // Super Admin can delete anyone else
+                userRepository.deleteByUsername(username);
+                System.out.println("✅ Super Admin deleted user: " + username);
+                return ResponseEntity.ok(Map.of("message", "User deleted successfully"));
+            }
+
+            // Admin can only delete AGENTS
+            if ("ROLE_ADMIN".equals(userRole)) {
+                if (!"ROLE_AGENT".equals(targetRole)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(Map.of("error", "Admins can only delete agents"));
+                }
+                userRepository.deleteByUsername(username);
+                System.out.println("✅ Admin deleted agent: " + username);
+                return ResponseEntity.ok(Map.of("message", "Agent deleted successfully"));
+            }
+
+            // Agents cannot delete anyone
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "You don't have permission to delete users"));
+
+        } catch (Exception e) {
+            System.err.println("❌ Error deleting user: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to delete user: " + e.getMessage()));
         }
     }
 
@@ -146,15 +131,16 @@ public class AdminController {
     public ResponseEntity<?> createUser(@RequestBody User user) {
         try {
             if (userRepository.findByUsername(user.getUsername()).isPresent()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Username already exists"));
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Username already exists"));
             }
 
-            user.setPassword(passwordEncoder.encode(user.getPassword()));
             user.setApproved(true);
             user.setEnabled(true);
             userRepository.save(user);
 
-            return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("message", "User created successfully"));
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(Map.of("message", "User created successfully"));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to create user: " + e.getMessage()));
@@ -180,26 +166,6 @@ public class AdminController {
         }
     }
 
-    @PutMapping("/users/{username}/password")
-    public ResponseEntity<?> updatePassword(@PathVariable String username, @RequestBody Map<String, String> request) {
-        try {
-            var userOpt = userRepository.findByUsername(username);
-            if (userOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-
-            User user = userOpt.get();
-            // Super Admin can change any user's password without old password
-            user.setPassword(passwordEncoder.encode(request.get("password")));
-            userRepository.save(user);
-
-            return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to update password: " + e.getMessage()));
-        }
-    }
-
     @PutMapping("/users/{username}/toggle")
     public ResponseEntity<?> toggleUser(@PathVariable String username, @RequestBody Map<String, Boolean> request) {
         try {
@@ -219,17 +185,47 @@ public class AdminController {
         }
     }
 
-    @DeleteMapping("/users/{username}")
-    public ResponseEntity<?> deleteUser(@PathVariable String username) {
+    @PutMapping("/users/{username}/password")
+    public ResponseEntity<?> changePassword(@PathVariable String username, @RequestBody Map<String, String> request) {
         try {
-            if (username.equals("superadmin")) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Cannot delete super admin"));
+            var userOpt = userRepository.findByUsername(username);
+            if (userOpt.isEmpty()) {
+                return ResponseEntity.notFound().build();
             }
-            userRepository.deleteByUsername(username);
-            return ResponseEntity.ok(Map.of("message", "User deleted successfully"));
+
+            User user = userOpt.get();
+            user.setPassword(request.get("password"));
+            userRepository.save(user);
+
+            return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to delete user: " + e.getMessage()));
+                    .body(Map.of("error", "Failed to change password: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/stats")
+    public ResponseEntity<?> getStats() {
+        try {
+            List<User> users = userRepository.findAll();
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("totalUsers", users.size());
+            stats.put("pendingApprovals", users.stream().filter(u -> !u.isApproved()).count());
+            stats.put("activeUsers", users.stream().filter(u -> u.isEnabled()).count());
+            return ResponseEntity.ok(stats);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch stats"));
+        }
+    }
+
+    @GetMapping("/recent-activity")
+    public ResponseEntity<?> getRecentActivity() {
+        try {
+            return ResponseEntity.ok(List.of());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch recent activity"));
         }
     }
 }
