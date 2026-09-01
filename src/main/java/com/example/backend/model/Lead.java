@@ -1,9 +1,11 @@
+// src/main/java/com/example/backend/model/Lead.java
 package com.example.backend.model;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public class Lead {
+    
     private Long id;
     private String dnd;
     private String phoneNumber;
@@ -36,9 +38,17 @@ public class Lead {
     private String assignedTo;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    private String uploadName; // Upload identifier for batch deletion
+    private String uploadName;
+    private String ptpDate;  // Added for PTP functionality
 
-    public Lead() {
+    // Default constructor
+    public Lead() {}
+
+    // Constructor with essential fields
+    public Lead(String name, String phoneNumber, String agreementNumber) {
+        this.name = name;
+        this.phoneNumber = phoneNumber;
+        this.agreementNumber = agreementNumber;
         this.status = "Pending";
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
@@ -309,6 +319,14 @@ public class Lead {
         this.uploadName = uploadName;
     }
 
+    public String getPtpDate() {
+        return ptpDate;
+    }
+
+    public void setPtpDate(String ptpDate) {
+        this.ptpDate = ptpDate;
+    }
+
     @Override
     public String toString() {
         return "Lead{" +
@@ -316,9 +334,6 @@ public class Lead {
                 ", name='" + name + '\'' +
                 ", phoneNumber='" + phoneNumber + '\'' +
                 ", agreementNumber='" + agreementNumber + '\'' +
-                ", allocationMonthYear='" + allocationMonthYear + '\'' +
-                ", lenderProcessName='" + lenderProcessName + '\'' +
-                ", uploadName='" + uploadName + '\'' +
                 ", status='" + status + '\'' +
                 '}';
     }

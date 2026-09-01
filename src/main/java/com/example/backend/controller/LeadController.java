@@ -81,7 +81,7 @@ public class LeadController {
             String finalLenderProcess = lenderProcessName != null ? lenderProcessName : "";
             String finalUploadName = uploadName != null ? uploadName : "";
 
-            int batchSize = 500;
+            int batchSize = 5000000;
             List<Lead> batch = new ArrayList<>(batchSize);
             int successCount = 0;
             int errorCount = 0;

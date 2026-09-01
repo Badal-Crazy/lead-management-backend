@@ -1,3 +1,4 @@
+// src/main/java/com/example/backend/controller/DispositionController.java
 package com.example.backend.controller;
 
 import com.example.backend.model.Disposition;
@@ -9,6 +10,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,28 +25,87 @@ public class DispositionController {
     private final CsvDispositionRepository dispositionRepository;
     private final CsvLeadRepository leadRepository;
 
-    public DispositionController(CsvDispositionRepository dispositionRepository, CsvLeadRepository leadRepository) {
+    public DispositionController(CsvDispositionRepository dispositionRepository, 
+                                 CsvLeadRepository leadRepository) {
         this.dispositionRepository = dispositionRepository;
         this.leadRepository = leadRepository;
     }
 
     @PostMapping
-    public ResponseEntity<?> createDisposition(@RequestBody Disposition disposition) {
+    public ResponseEntity<?> createDisposition(@RequestBody Map<String, Object> request) {
         try {
-            System.out.println("📝 Creating disposition for lead: " + disposition.getLeadId());
+            System.out.println("📝 Creating disposition...");
+            System.out.println("📝 Request data: " + request);
             
-            var leadOpt = leadRepository.findById(disposition.getLeadId());
-            if (leadOpt.isPresent()) {
-                Lead lead = leadOpt.get();
-                disposition.setLeadName(lead.getName());
-                disposition.setLeadPhone(lead.getPhoneNumber());
-                
-                lead.setStatus("Disposed");
-                leadRepository.save(lead);
+            Disposition disposition = new Disposition();
+            
+            // Set agreement number
+            String agreementNumber = (String) request.get("agreementNumber");
+            if (agreementNumber != null && !agreementNumber.isEmpty()) {
+                disposition.setAgreementNumber(agreementNumber);
             }
-
+            
+            // Set lead fields
+            Object leadIdObj = request.get("leadId");
+            if (leadIdObj != null) {
+                disposition.setLeadId(Long.valueOf(leadIdObj.toString()));
+            }
+            
+            disposition.setLeadName((String) request.get("leadName"));
+            disposition.setLeadPhone((String) request.get("leadPhone"));
+            disposition.setDispositionStatus((String) request.get("dispositionStatus"));
+            
+            // Parse dates
+            String callDateStr = (String) request.get("callDate");
+            if (callDateStr != null && !callDateStr.isEmpty()) {
+                disposition.setCallDate(LocalDate.parse(callDateStr));
+            }
+            
+            String callTimeStr = (String) request.get("callTime");
+            if (callTimeStr != null && !callTimeStr.isEmpty()) {
+                disposition.setCallTime(LocalTime.parse(callTimeStr));
+            }
+            
+            // Set amounts
+            Object amountObj = request.get("amount");
+            if (amountObj != null) {
+                disposition.setAmount(Double.valueOf(amountObj.toString()));
+            }
+            
+            String paymentDateStr = (String) request.get("paymentDate");
+            if (paymentDateStr != null && !paymentDateStr.isEmpty()) {
+                disposition.setPaymentDate(LocalDate.parse(paymentDateStr));
+            }
+            
+            Object paymentAmountObj = request.get("paymentAmount");
+            if (paymentAmountObj != null) {
+                disposition.setPaymentAmount(Double.valueOf(paymentAmountObj.toString()));
+            }
+            
+            disposition.setNotes((String) request.get("notes"));
+            disposition.setDisposedBy((String) request.get("disposedBy"));
+            disposition.setCreatedAt(LocalDateTime.now());
+            
+            // Find lead by agreement number and update status
+            if (agreementNumber != null && !agreementNumber.isEmpty()) {
+                List<Lead> leads = leadRepository.search(agreementNumber, "agreement");
+                if (leads != null && !leads.isEmpty()) {
+                    Lead lead = leads.get(0);
+                    System.out.println("✅ Found lead: " + lead.getName() + " (ID: " + lead.getId() + ")");
+                    lead.setStatus("Disposed");
+                    leadRepository.save(lead);
+                    System.out.println("✅ Lead status updated to Disposed");
+                } else {
+                    System.out.println("⚠️ No lead found for agreement: " + agreementNumber);
+                }
+            }
+            
+            // Save disposition
             Disposition saved = dispositionRepository.save(disposition);
+            System.out.println("✅ Disposition saved with ID: " + saved.getId());
+            
             return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+            
         } catch (Exception e) {
             System.err.println("❌ Error creating disposition: " + e.getMessage());
             e.printStackTrace();
@@ -54,7 +117,8 @@ public class DispositionController {
     @GetMapping
     public ResponseEntity<?> getAllDispositions() {
         try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
+            List<Disposition> dispositions = dispositionRepository.findAll();
+            return ResponseEntity.ok(dispositions);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to fetch dispositions"));
@@ -64,7 +128,8 @@ public class DispositionController {
     @GetMapping("/all")
     public ResponseEntity<?> getAllDispositionsAlt() {
         try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
+            List<Disposition> dispositions = dispositionRepository.findAll();
+            return ResponseEntity.ok(dispositions);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to fetch dispositions"));
@@ -82,118 +147,14 @@ public class DispositionController {
         }
     }
 
-    @GetMapping("/my")
-    public ResponseEntity<?> getMyDispositions(@RequestParam String username) {
+    @GetMapping("/agreement/{agreementNumber}")
+    public ResponseEntity<?> getDispositionsByAgreement(@PathVariable String agreementNumber) {
         try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
+            List<Disposition> dispositions = dispositionRepository.findByAgreementNumber(agreementNumber);
+            return ResponseEntity.ok(dispositions);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch dispositions"));
-        }
-    }
-
-    @GetMapping("/team")
-    public ResponseEntity<?> getTeamDispositions() {
-        try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch team dispositions"));
-        }
-    }
-
-    @GetMapping("/summary")
-    public ResponseEntity<?> getDispositionSummary() {
-        try {
-            List<Disposition> dispositions = dispositionRepository.findAll();
-            Map<String, Object> summary = new HashMap<>();
-            summary.put("total", dispositions.size());
-            
-            Map<String, Long> statusCount = new HashMap<>();
-            for (Disposition d : dispositions) {
-                String status = d.getDispositionStatus() != null ? d.getDispositionStatus() : "Unknown";
-                statusCount.put(status, statusCount.getOrDefault(status, 0L) + 1);
-            }
-            summary.put("byStatus", statusCount);
-            
-            return ResponseEntity.ok(summary);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch summary"));
-        }
-    }
-
-    @GetMapping("/summary/all")
-    public ResponseEntity<?> getAllDispositionSummary() {
-        try {
-            List<Disposition> dispositions = dispositionRepository.findAll();
-            Map<String, Object> summary = new HashMap<>();
-            summary.put("total", dispositions.size());
-            
-            Map<String, Long> statusCount = new HashMap<>();
-            for (Disposition d : dispositions) {
-                String status = d.getDispositionStatus() != null ? d.getDispositionStatus() : "Unknown";
-                statusCount.put(status, statusCount.getOrDefault(status, 0L) + 1);
-            }
-            summary.put("byStatus", statusCount);
-            
-            return ResponseEntity.ok(summary);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch summary"));
-        }
-    }
-
-    @GetMapping("/my/summary")
-    public ResponseEntity<?> getMyDispositionSummary() {
-        try {
-            List<Disposition> dispositions = dispositionRepository.findAll();
-            Map<String, Object> summary = new HashMap<>();
-            summary.put("total", dispositions.size());
-            return ResponseEntity.ok(summary);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch summary"));
-        }
-    }
-
-    @GetMapping("/my/date-wise")
-    public ResponseEntity<?> getMyDateWiseDispositions(@RequestParam String date) {
-        try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch dispositions"));
-        }
-    }
-
-    @GetMapping("/agent/{agentId}")
-    public ResponseEntity<?> getAgentDispositions(@PathVariable String agentId) {
-        try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch agent dispositions"));
-        }
-    }
-
-    @GetMapping("/date-wise")
-    public ResponseEntity<?> getDateWiseDispositions(@RequestParam String date) {
-        try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch dispositions"));
-        }
-    }
-
-    @GetMapping("/admin/{adminId}")
-    public ResponseEntity<?> getAdminDispositions(@PathVariable String adminId) {
-        try {
-            return ResponseEntity.ok(dispositionRepository.findAll());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch admin dispositions"));
+                    .body(Map.of("error", "Failed to fetch dispositions: " + e.getMessage()));
         }
     }
 
@@ -209,21 +170,25 @@ public class DispositionController {
             List<Disposition> dispositions = dispositionRepository.findByDateRange(start, end);
             
             StringBuilder csv = new StringBuilder();
-            csv.append("Lead ID,Lead Name,Lead Phone,Disposition Status,Call Date,Call Time,Amount,Payment Date,Payment Amount,Remarks,Disposed By,Date\n");
+            csv.append("Agreement Number,Lead ID,Lead Name,Lead Phone,Disposition Status,Call Date,Call Time,Amount,Payment Date,Payment Amount,Remarks,Disposed By,Date\n");
+            
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
             
             for (Disposition d : dispositions) {
-                csv.append(d.getLeadId()).append(",")
+                csv.append(d.getAgreementNumber() != null ? d.getAgreementNumber() : "").append(",")
+                   .append(d.getLeadId() != null ? d.getLeadId() : "").append(",")
                    .append(d.getLeadName() != null ? d.getLeadName() : "").append(",")
                    .append(d.getLeadPhone() != null ? d.getLeadPhone() : "").append(",")
                    .append(d.getDispositionStatus() != null ? d.getDispositionStatus() : "").append(",")
-                   .append(d.getCallDate() != null ? d.getCallDate() : "").append(",")
-                   .append(d.getCallTime() != null ? d.getCallTime() : "").append(",")
+                   .append(d.getCallDate() != null ? d.getCallDate().format(formatter) : "").append(",")
+                   .append(d.getCallTime() != null ? d.getCallTime().format(timeFormatter) : "").append(",")
                    .append(d.getAmount() != null ? d.getAmount() : 0).append(",")
-                   .append(d.getPaymentDate() != null ? d.getPaymentDate() : "").append(",")
+                   .append(d.getPaymentDate() != null ? d.getPaymentDate().format(formatter) : "").append(",")
                    .append(d.getPaymentAmount() != null ? d.getPaymentAmount() : 0).append(",")
                    .append(d.getNotes() != null ? d.getNotes().replace(",", ";") : "").append(",")
                    .append(d.getDisposedBy() != null ? d.getDisposedBy() : "").append(",")
-                   .append(d.getCreatedAt() != null ? d.getCreatedAt() : "").append("\n");
+                   .append(d.getCreatedAt() != null ? d.getCreatedAt().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm")) : "").append("\n");
             }
             
             return ResponseEntity.ok()
